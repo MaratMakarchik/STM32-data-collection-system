@@ -43,11 +43,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DEVICE_ID "10"
-#define DEFAULT_LOWER_TEMP (-25)
-#define DEFAULT_UPPER_TEMP  35
-#define DEFAULT_TIME_DS     60
-#define DEFAULT_TIME_HEATING 70
+#define DEVICE_ID 1 
+#define SLOT_DURATION 100 //dead time for time sharing 
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -80,9 +78,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     if(GPIO_Pin==DIO0_Pin){
         HAL_ResumeTick();
         LoRa_receive(&myLoRa,myInterface.RxBuffer,20);
-        if(strncmp((const char*)myInterface.RxBuffer, DEVICE_ID, 2) == 0){
-            myInterface.flag_is_i = 1;
-        }
     }
 }
 
@@ -91,7 +86,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if(htim->Instance == TIM1) 
     {
         HAL_ResumeTick();
-        myInterface.flag_tim = 1;
+				myInterface.flag_work = 1;
+			
 		}
 	}
 /* USER CODE END 0 */
@@ -131,14 +127,8 @@ int main(void)
   
   // Struct Interface
 	
-  myInterface.flag_is_i = 0;
-	myInterface.flag_tim = 0;
-  myInterface.status = STATUS_EXPECT;    
-  myInterface.temp_lower = DEFAULT_LOWER_TEMP;
-  myInterface.temp_upper = DEFAULT_UPPER_TEMP;
-	myInterface.time_heating = DEFAULT_TIME_HEATING;
-	myInterface.time_ds = DEFAULT_TIME_DS;
-	
+  myInterface.flag_work = 0;
+	myInterface.TDMA_time = 0;
 	myInterface.data.mqData = 0;
 	myInterface.data.temp = 0;
   
@@ -171,12 +161,12 @@ int main(void)
       delay_ms(200);
       HAL_GPIO_TogglePin(LED_GPIO_Port,LED_Pin);
   }
-  else
+  
+	else
   {
-      myInterface.status = (uint8_t)STATUS_ERROR;
 			while(1)
 			{
-			delay_ms(1000);
+			delay_ms(100);
       HAL_GPIO_TogglePin(LED_GPIO_Port,LED_Pin);
 			}
   }
@@ -207,123 +197,95 @@ int main(void)
 	
 	// setting MQ7
 	myMQ7 = MQ7_init(MQ_KEY_GPIO_Port,MQ_KEY_Pin,&hadc1);
-		
-	__HAL_TIM_CLEAR_FLAG(&htim1, TIM_SR_UIF); 
-  HAL_TIM_Base_Start_IT(&htim1);
-	HAL_TIM_Base_Stop_IT(&htim1);
-	__HAL_TIM_SET_AUTORELOAD(&htim1,myInterface.time_ds*80);
-	__HAL_TIM_SET_COUNTER(&htim1, 0);
-	HAL_TIM_Base_Start_IT(&htim1);
-	
-
-
-	char tmpBuff[20];
-  /* USER CODE END 2 */
+	/* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-		
-		HAL_GPIO_WritePin(LED_GPIO_Port,LED_Pin,GPIO_PIN_SET);
+  while (1){
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
     HAL_SuspendTick();
     HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
-		HAL_GPIO_WritePin(LED_GPIO_Port,LED_Pin,GPIO_PIN_RESET);
-		
-		
-    if (myInterface.flag_is_i == 1)
-    {
-			
-			OperatingMode(&myInterface);
-			snprintf(tmpBuff,3,DEVICE_ID);
-			snprintf(tmpBuff+2,4," OK");
-			LoRa_transmit(&myLoRa,(uint8_t*)tmpBuff, 20, 1000);
-			myInterface.flag_is_i = 0;
-			
-			if(myInterface.status == (uint8_t)STATUS_MESSURE){
-				MQ7_Start_heating(&myMQ7);
-				
-				DS18B20_InitializationCommand(&temperatureSensor);
-				DS18B20_SkipRom(&temperatureSensor);
-				DS18B20_ConvertT(&temperatureSensor, DS18B20_DATA);  
-				DS18B20_InitializationCommand(&temperatureSensor);
-				DS18B20_SkipRom(&temperatureSensor);
-				DS18B20_ReadScratchpad(&temperatureSensor);
-				myInterface.data.temp = temperatureSensor.temperature;	
-				
-				delay_ms(myInterface.time_heating*450);
-				MQ7_Measurement(&myMQ7,&myInterface.data.mqData,1);
-				MQ7_Stop_heating(&myMQ7);
-				
-				snprintf(tmpBuff,3,DEVICE_ID);
-				snprintf(tmpBuff+2,6,"% .2f",myInterface.data.temp);
-		    snprintf(tmpBuff+9,6," %d",myInterface.data.mqData);
-				LoRa_transmit(&myLoRa,(uint8_t*)tmpBuff, 20, 1000);
-			}
-				
-			else if(myInterface.status == (uint8_t)STATUS_OLD_DATA)
-			{
-				snprintf(tmpBuff,3,DEVICE_ID);
-				snprintf(tmpBuff+2,6,"% .2f",myInterface.data.temp);
-		    snprintf(tmpBuff+9,6," %d",myInterface.data.mqData);
-				LoRa_transmit(&myLoRa,(uint8_t*)tmpBuff, 20, 1000);
-			}
-				
-			else if(myInterface.status == (uint8_t)STATUS_SETTING)
-			{
-				
-				__HAL_TIM_CLEAR_FLAG(&htim1, TIM_SR_UIF); 
-			  HAL_TIM_Base_Start_IT(&htim1);
-				HAL_TIM_Base_Stop_IT(&htim1);
-				__HAL_TIM_SET_AUTORELOAD(&htim1,myInterface.time_ds*80);
-				__HAL_TIM_SET_COUNTER(&htim1, 0);
-				HAL_TIM_Base_Start_IT(&htim1);
-				LoRa_transmit(&myLoRa,(uint8_t*)"OK", 2, 1000);
-				
-		   		
-			}
-			
-			else if(myInterface.status == (uint8_t)STATUS_ERROR)
-			{
-				snprintf(tmpBuff,3,DEVICE_ID);
-				snprintf(tmpBuff+3,5," ERR");
-				LoRa_transmit(&myLoRa,(uint8_t*)tmpBuff, 9, 1000);
-			}			
-                  
-    }
-		
-		if(myInterface.flag_tim == 1)
-		{
-			myInterface.flag_tim = 0;
-			
-      DS18B20_InitializationCommand(&temperatureSensor);
-      DS18B20_SkipRom(&temperatureSensor);
-      DS18B20_ConvertT(&temperatureSensor, DS18B20_DATA);  
-      DS18B20_InitializationCommand(&temperatureSensor);
-      DS18B20_SkipRom(&temperatureSensor);
-      DS18B20_ReadScratchpad(&temperatureSensor);
-        
-      myInterface.data.temp = temperatureSensor.temperature;
-        
-      if (myInterface.data.temp > (float)myInterface.temp_upper ||
-					myInterface.data.temp < (float)myInterface.temp_lower  )
-        {
-					snprintf(tmpBuff,2,DEVICE_ID);
-					
-          sprintf(tmpBuff+3,"dngt %.2f", myInterface.data.temp);
-          LoRa_transmit(&myLoRa,(uint8_t*)tmpBuff, strlen(tmpBuff), 1000);
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+    
+    char st[3], fn[3];
+    uint32_t beacon_time = 0;
+    
+    // Проверяем, что в буфере есть данные для парсинга
+    if(strlen((char*)myInterface.RxBuffer) >= 10 &&
+       sscanf((char*)myInterface.RxBuffer, "%2s %lu %2s", st, &beacon_time, fn) == 3 &&
+       strcmp(st, "st") == 0 && strcmp(fn, "fn") == 0){
+        // Расчет времени TDMA с проверкой на переполнение
+        if (beacon_time <= (UINT32_MAX - (DEVICE_ID * SLOT_DURATION)) / 80) {
+            myInterface.TDMA_time = (beacon_time + (DEVICE_ID * SLOT_DURATION)) * 80;
+        } else {
+            myInterface.TDMA_time = (100 + (DEVICE_ID * SLOT_DURATION)) * 80;
         }
         
-      myInterface.status = (uint8_t)STATUS_EXPECT;
-      LoRa_gotoMode(&myLoRa,RXCONTIN_MODE);
-			HAL_GPIO_TogglePin(LED_GPIO_Port,LED_Pin);
-		}
-		LoRa_gotoMode(&myLoRa,RXCONTIN_MODE);
-		myInterface.status = STATUS_EXPECT;
-		BuffCLC((uint8_t*)tmpBuff,20);
-		
+        // Настройка таймера
+        HAL_TIM_Base_Stop_IT(&htim1);
+        __HAL_TIM_SET_AUTORELOAD(&htim1, myInterface.TDMA_time);
+        __HAL_TIM_SET_COUNTER(&htim1, 0);
+        __HAL_TIM_CLEAR_FLAG(&htim1, TIM_SR_UIF);
+        HAL_TIM_Base_Start_IT(&htim1);
+        
+        // Подготовка датчиков
+        MQ7_Start_heating(&myMQ7);
+        
+        // Измерение температуры
+        if (DS18B20_InitializationCommand(&temperatureSensor) == DS18B20_OK) {
+            DS18B20_SkipRom(&temperatureSensor);
+            DS18B20_ConvertT(&temperatureSensor, DS18B20_DATA);
+            DS18B20_InitializationCommand(&temperatureSensor);
+            DS18B20_SkipRom(&temperatureSensor);
+            DS18B20_ReadScratchpad(&temperatureSensor);
+            myInterface.data.temp = temperatureSensor.temperature;
+        }
+        
+        // Ожидание с низким энергопотреблением
+        while(myInterface.flag_work != 1) {
+            HAL_SuspendTick();
+            HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+        }
+        
+        // Измерение MQ7 и передача данных
+        if (MQ7_Measurement(&myMQ7, &myInterface.data.mqData, 1) == MQ7_OK) {
+            MQ7_Stop_heating(&myMQ7);
+            
+            // Формирование сообщения
+            uint32_t offset = 0;
+            offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                               sizeof(myInterface.TxBuffer) - offset, 
+                               "%d", DEVICE_ID);
+            offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                               sizeof(myInterface.TxBuffer) - offset, 
+                               " %.2f", myInterface.data.temp);
+            offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                               sizeof(myInterface.TxBuffer) - offset, 
+                               " %d", myInterface.data.mqData);
+            
+            // Передача
+            LoRa_transmit(&myLoRa, (uint8_t*)myInterface.TxBuffer, offset, 1000);
+        }
+    }
+    else
+    {
+        // Индикация ошибки
+        for(int i = 0; i < 4; i++) {
+            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+            delay_ms(200);
+        }
+        myInterface.flag_work = 0;
+    }
+    
+    // Возврат в режим приема
+    LoRa_gotoMode(&myLoRa, RXCONTIN_MODE);
+    
+    // Очистка буферов
+    memset(myInterface.RxBuffer, 0, sizeof(myInterface.RxBuffer));
+    memset(myInterface.TxBuffer, 0, sizeof(myInterface.TxBuffer));
+	}
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
-  }
+
   /* USER CODE END 3 */
 }
 
