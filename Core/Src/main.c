@@ -44,7 +44,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define DEVICE_ID 1 
-#define SLOT_DURATION 100 //dead time for time sharing 
+#define SLOT_DURATION 2 //dead time for time sharing 
 
 /* USER CODE END PD */
 
@@ -77,6 +77,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if(GPIO_Pin==DIO0_Pin){
         HAL_ResumeTick();
+			  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_Pin);
         LoRa_receive(&myLoRa,myInterface.RxBuffer,20);
     }
 }
@@ -86,6 +87,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if(htim->Instance == TIM1) 
     {
         HAL_ResumeTick();
+			  __HAL_TIM_CLEAR_IT(htim, TIM_IT_UPDATE);
 				myInterface.flag_work = 1;
 			
 		}
@@ -210,16 +212,11 @@ int main(void)
     uint32_t beacon_time = 0;
     
     // Проверяем, что в буфере есть данные для парсинга
-    if(strlen((char*)myInterface.RxBuffer) >= 10 &&
-       sscanf((char*)myInterface.RxBuffer, "%2s %lu %2s", st, &beacon_time, fn) == 3 &&
+    if(sscanf((char*)myInterface.RxBuffer, "%2s %lu %2s", st, &beacon_time, fn) == 3 &&
        strcmp(st, "st") == 0 && strcmp(fn, "fn") == 0){
-        // Расчет времени TDMA с проверкой на переполнение
-        if (beacon_time <= (UINT32_MAX - (DEVICE_ID * SLOT_DURATION)) / 80) {
-            myInterface.TDMA_time = (beacon_time + (DEVICE_ID * SLOT_DURATION)) * 80;
-        } else {
-            myInterface.TDMA_time = (100 + (DEVICE_ID * SLOT_DURATION)) * 80;
-        }
-        
+       myInterface.TDMA_time = (beacon_time + (DEVICE_ID * SLOT_DURATION)) * 80;
+			
+				 
         // Настройка таймера
         HAL_TIM_Base_Stop_IT(&htim1);
         __HAL_TIM_SET_AUTORELOAD(&htim1, myInterface.TDMA_time);
@@ -241,30 +238,28 @@ int main(void)
         }
         
         // Ожидание с низким энергопотреблением
-        while(myInterface.flag_work != 1) {
-            HAL_SuspendTick();
-            HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
-        }
-        
+        HAL_SuspendTick();
+        HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+        HAL_TIM_Base_Stop_IT(&htim1);
+				
         // Измерение MQ7 и передача данных
-        if (MQ7_Measurement(&myMQ7, &myInterface.data.mqData, 1) == MQ7_OK) {
-            MQ7_Stop_heating(&myMQ7);
+				MQ7_Measurement(&myMQ7,&myInterface.data.mqData,1);
+        MQ7_Stop_heating(&myMQ7);
             
             // Формирование сообщения
-            uint32_t offset = 0;
-            offset += snprintf((char*)myInterface.TxBuffer + offset, 
-                               sizeof(myInterface.TxBuffer) - offset, 
-                               "%d", DEVICE_ID);
-            offset += snprintf((char*)myInterface.TxBuffer + offset, 
-                               sizeof(myInterface.TxBuffer) - offset, 
-                               " %.2f", myInterface.data.temp);
-            offset += snprintf((char*)myInterface.TxBuffer + offset, 
-                               sizeof(myInterface.TxBuffer) - offset, 
-                               " %d", myInterface.data.mqData);
-            
-            // Передача
-            LoRa_transmit(&myLoRa, (uint8_t*)myInterface.TxBuffer, offset, 1000);
-        }
+        uint32_t offset = 0;
+        offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                          sizeof(myInterface.TxBuffer) - offset, 
+                          "%d", DEVICE_ID);
+        offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                           sizeof(myInterface.TxBuffer) - offset, 
+                           " %.2f", myInterface.data.temp);
+        offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                           sizeof(myInterface.TxBuffer) - offset, 
+                           " %d", myInterface.data.mqData);
+    
+         LoRa_transmit(&myLoRa, (uint8_t*)myInterface.TxBuffer, offset, 1000);
+       
     }
     else
     {
