@@ -226,7 +226,7 @@ int main(void)
         
         // Подготовка датчиков
         MQ7_Start_heating(&myMQ7);
-        
+        delay_ms(100);
         // Измерение температуры
         if (DS18B20_InitializationCommand(&temperatureSensor) == DS18B20_OK) {
             DS18B20_SkipRom(&temperatureSensor);
@@ -259,7 +259,8 @@ int main(void)
                            " %d", myInterface.data.mqData);
     
          LoRa_transmit(&myLoRa, (uint8_t*)myInterface.TxBuffer, offset, 1000);
-       
+				 delay_ms(100);
+				 NVIC_SystemReset();
     }
     else
     {
@@ -267,10 +268,12 @@ int main(void)
         for(int i = 0; i < 4; i++) {
             HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
             delay_ms(200);
+						NVIC_SystemReset();
         }
         myInterface.flag_work = 0;
     }
     
+		
     // Возврат в режим приема
     LoRa_gotoMode(&myLoRa, RXCONTIN_MODE);
     
