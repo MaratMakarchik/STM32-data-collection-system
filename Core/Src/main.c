@@ -30,6 +30,7 @@
 #include "LoRa.h"
 #include "ds18b20.h"
 #include "MQ.h"
+#include "VbatControl.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -60,6 +61,7 @@ LoRa myLoRa;
 MQ7 myMQ7;
 DS18B20 temperatureSensor;
 UseInterface myInterface;
+VbatControl myVbat;
 
 
 /* USER CODE END PV */
@@ -121,7 +123,7 @@ int main(void)
   MX_SPI1_Init();
   MX_USART1_UART_Init();
   MX_ADC1_Init();
-  //MX_ADC2_Init();
+  MX_ADC2_Init();
   MX_TIM1_Init();
   
   /* USER CODE BEGIN 2 */
@@ -199,6 +201,8 @@ int main(void)
 	
 	// setting MQ7
 	myMQ7 = MQ7_init(MQ_KEY_GPIO_Port,MQ_KEY_Pin,&hadc1);
+	myVbat = VbatControl_init(&hadc2);
+	
 	/* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -227,7 +231,18 @@ int main(void)
         // Подготовка датчиков
         MQ7_Start_heating(&myMQ7);
         delay_ms(100);
-        // Измерение температуры
+				 
+        // Ожидание с низким энергопотреблением
+        HAL_SuspendTick();
+        HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+        HAL_TIM_Base_Stop_IT(&htim1);
+				
+        // Измерение MQ7 и передача данных
+				MQ7_Measurement(&myMQ7);
+				myInterface.data.mqData = myMQ7.res_adc;
+        MQ7_Stop_heating(&myMQ7);
+					
+				// Измерение температуры
         if (DS18B20_InitializationCommand(&temperatureSensor) == DS18B20_OK) {
             DS18B20_SkipRom(&temperatureSensor);
             DS18B20_ConvertT(&temperatureSensor, DS18B20_DATA);
@@ -236,16 +251,10 @@ int main(void)
             DS18B20_ReadScratchpad(&temperatureSensor);
             myInterface.data.temp = temperatureSensor.temperature;
         }
-        
-        // Ожидание с низким энергопотреблением
-        HAL_SuspendTick();
-        HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
-        HAL_TIM_Base_Stop_IT(&htim1);
-				
-        // Измерение MQ7 и передача данных
-				MQ7_Measurement(&myMQ7,&myInterface.data.mqData,1);
-        MQ7_Stop_heating(&myMQ7);
-            
+				//измерение напряжения батарейки
+				VbatControl_Measurement(&myVbat);
+				myInterface.data.Vbat = myVbat.Vbat;
+
             // Формирование сообщения
         uint32_t offset = 0;
         offset += snprintf((char*)myInterface.TxBuffer + offset, 
@@ -257,10 +266,14 @@ int main(void)
         offset += snprintf((char*)myInterface.TxBuffer + offset, 
                            sizeof(myInterface.TxBuffer) - offset, 
                            " %d", myInterface.data.mqData);
+				offset += snprintf((char*)myInterface.TxBuffer + offset, 
+                           sizeof(myInterface.TxBuffer) - offset, 
+                           " %.2f", myInterface.data.Vbat);
+        	
     
          LoRa_transmit(&myLoRa, (uint8_t*)myInterface.TxBuffer, offset, 1000);
 				 delay_ms(100);
-				 NVIC_SystemReset();
+				 //NVIC_SystemReset();
     }
     else
     {
@@ -268,7 +281,7 @@ int main(void)
         for(int i = 0; i < 4; i++) {
             HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
             delay_ms(200);
-						NVIC_SystemReset();
+						//NVIC_SystemReset();
         }
         myInterface.flag_work = 0;
     }
@@ -344,6 +357,12 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+		for(int i = 0; i < 4; i++) {
+				
+			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+      delay_ms(200);}
+		
+		NVIC_SystemReset();
   }
   /* USER CODE END Error_Handler_Debug */
 }

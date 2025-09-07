@@ -41,5 +41,6 @@ v1\main.o: E:\programm\keil\ARM\ARMCC\Bin\..\include\stdio.h
 v1\main.o: ..\Core\lib\LoRa.h
 v1\main.o: ..\Core\lib\ds18b20.h
 v1\main.o: ..\Core\lib\MQ.h
+v1\main.o: ..\Core\lib\VbatControl.h
 v1\main.o: E:\programm\keil\ARM\ARMCC\Bin\..\include\string.h
 v1\main.o: E:\programm\keil\ARM\ARMCC\Bin\..\include\stdlib.h

@@ -31,6 +31,7 @@
 "v1\lora.o"
 "v1\mq.o"
 "v1\onewire.o"
+"v1\vbatcontrol.o"
 --strict --scatter "V1\V1.sct"
 --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
 --info sizes --info totals --info unused --info veneers

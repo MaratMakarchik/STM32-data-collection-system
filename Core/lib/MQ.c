@@ -22,16 +22,19 @@ void MQ7_Stop_heating( MQ7* _MQ7)
 	_MQ7->is_heating = 0;
 }
 
-uint8_t MQ7_Measurement(MQ7* _MQ7, uint16_t* array_data, uint8_t len_array)
+uint8_t MQ7_Measurement(MQ7* _MQ7)
 {
 	HAL_ADCEx_Calibration_Start(_MQ7->hADCx);
 	if (_MQ7 ->is_heating == 0) return MQ7_ERR;
-	for(uint8_t i = 0;i<len_array;i++){
-		HAL_ADC_Start(_MQ7->hADCx); // запускаем преобразование сигнала АЦП
-		HAL_ADC_PollForConversion(_MQ7->hADCx, 100); // ожидаем окончания преобразования
-		*array_data = HAL_ADC_GetValue(_MQ7->hADCx);
-	}
-	
-  HAL_ADC_Stop(_MQ7->hADCx); 
-	return MQ7_OK;
+    uint32_t sum = 0;
+    
+    for (int i = 0; i < ADC_SAMPLES; i++) {
+        HAL_ADC_Start(_MQ7->hADCx);
+        HAL_ADC_PollForConversion(_MQ7->hADCx, 100);  // Таймаут 100 мс
+        sum += HAL_ADC_GetValue(_MQ7->hADCx);
+        HAL_ADC_Stop(_MQ7->hADCx);
+    }
+		_MQ7->res_adc  = sum/ADC_SAMPLES;
+		HAL_ADC_Stop(_MQ7->hADCx); 
+		return MQ7_OK;
 }
